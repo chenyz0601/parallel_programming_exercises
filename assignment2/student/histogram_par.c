@@ -11,8 +11,9 @@ unsigned int cur_start; // start point of each job
 unsigned int cur_end; // end point of each job
 int global_hist[N]; // for each thread to do reduction
 char *shared_buffer; // start pointer of the names
-int q_length = 0;
-bool all_done = false;
+int q_length;
+//int q_max;
+bool all_done;
 //sem_t full;
 //sem_t empty;
 
@@ -30,6 +31,7 @@ void * Consumer(void * arg) {
     while(1) {
         // lock mutex_variable to get job
         //sem_wait(&full);
+        //printf("I am a consumer\n");
         pthread_mutex_lock(&mutex_variable);
         // set the break condition: all jobs are done, then break
         if (all_done) {
@@ -41,12 +43,9 @@ void * Consumer(void * arg) {
             end = cur_end;
             get_my_job = true;
             q_length = 0;
-            pthread_mutex_unlock(&mutex_variable);
         }
-        else {
-            pthread_mutex_unlock(&mutex_variable);
+        pthread_mutex_unlock(&mutex_variable);
             //sleep(0.000001);
-        }
         //sem_post(empty);
         // count for local_hist, its job
         if (get_my_job) {
@@ -74,11 +73,12 @@ void * Consumer(void * arg) {
     return NULL;
 }
 
-void * Producer(void * ptr) {
+void Producer() {
     int num_jobs = 0;
     unsigned int count = 0;
     int sub_count = 0;
     while (shared_buffer[count] != TERMINATOR) {
+        //printf("I am producer\n");
         // create a job
         //sem_wait(&empty);
         pthread_mutex_lock(&mutex_variable);
@@ -91,13 +91,10 @@ void * Producer(void * ptr) {
             //printf("produce a job, %d, %d\n", cur_start, cur_end);
             q_length = 1;
             num_jobs ++;
-            pthread_mutex_unlock(&mutex_variable);
             count += sub_count;
         }
-        else {
-            pthread_mutex_unlock(&mutex_variable);
+        pthread_mutex_unlock(&mutex_variable);
             //sleep(0.000000002);
-        }
         //sem_post(&full);
     }
     //printf("producer: last count is: %d\n", count);
@@ -105,13 +102,15 @@ void * Producer(void * ptr) {
     pthread_mutex_lock(&mutex_variable);
     all_done = true;
     pthread_mutex_unlock(&mutex_variable);
-    return NULL;
 }
 
 void get_histogram(char *buffer, int* histogram, int num_threads) {
+    //printf("I am called, with nthreads: %d\n", num_threads);
     // initialize all global variables
     //sem_init(full, 0, 0);
     //sem_init(empty, 0, 1);
+    all_done = false;
+    q_length = 0;
     shared_buffer = buffer;
     cur_start = 0;
     for (int i = 0; i < N; i ++)
@@ -119,9 +118,9 @@ void get_histogram(char *buffer, int* histogram, int num_threads) {
     // create threads
     pthread_t *thread;
     thread = (pthread_t*)malloc(num_threads * sizeof(*thread));
-    pthread_create(thread, NULL, &Producer, NULL);
-    for (int i = 1; i < num_threads; i ++)
+    for (int i = 0; i < num_threads; i ++)
         pthread_create(thread+i, NULL, &Consumer, NULL);
+    Producer();
     for (int i = 0; i < num_threads; i ++)
         pthread_join(thread[i], NULL);
     // write into histogram
