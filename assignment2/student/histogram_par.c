@@ -7,18 +7,22 @@
 #include <unistd.h>
 #include "names.h"
 #define N 10 // number of characters
-unsigned int cur_start; // start point of each job
-unsigned int cur_end; // end point of each job
+//unsigned int cur_start; // start point of each job
+//unsigned int cur_end; // end point of each job
 int global_hist[N]; // for each thread to do reduction
 char *shared_buffer; // start pointer of the names
 int q_length;
-//int q_max;
+int q_max;
 bool all_done;
-//sem_t full;
-//sem_t empty;
 
 pthread_mutex_t mutex_variable = PTHREAD_MUTEX_INITIALIZER; // mutex for tasks
 pthread_mutex_t mutex_count = PTHREAD_MUTEX_INITIALIZER; // mutex for reduction
+struct Job {
+    unsigned int start;
+    unsigned int end;
+};
+
+struct Job queue;
 
 void * Consumer(void * arg) {
     int local_hist[N]; // hold by each thread to count hist
@@ -26,8 +30,8 @@ void * Consumer(void * arg) {
     // initialize
     for (int i = 0; i < N; i ++)
         local_hist[i] = 0;
+    struct Job cur_job;
     // local start and end points
-    unsigned int start, end;
     while(1) {
         // lock mutex_variable to get job
         //sem_wait(&full);
@@ -39,10 +43,9 @@ void * Consumer(void * arg) {
             break;
         }
         if (q_length == 1) {
-            start = cur_start; // get current start point
-            end = cur_end;
             get_my_job = true;
-            q_length = 0;
+            q_length --;
+            cur_job = queue;
         }
         pthread_mutex_unlock(&mutex_variable);
             //sleep(0.000001);
@@ -51,7 +54,7 @@ void * Consumer(void * arg) {
         if (get_my_job) {
             char current_word[20] = "";
             int c = 0;
-            for (unsigned int i = start; i < end; i++) {
+            for (unsigned int i = cur_job.start; i < cur_job.end; i++) {
                 if(isalpha(shared_buffer[i])){
                     current_word[c++] = shared_buffer[i];
                 } else {
@@ -74,33 +77,31 @@ void * Consumer(void * arg) {
 }
 
 void Producer() {
+    int count = 0;
     int num_jobs = 0;
-    unsigned int count = 0;
-    int sub_count = 0;
-    while (shared_buffer[count] != TERMINATOR) {
-        //printf("I am producer\n");
-        // create a job
-        //sem_wait(&empty);
+    while (num_jobs < 401) {
         pthread_mutex_lock(&mutex_variable);
-        if (q_length == 0) { // create a job
-            cur_start = count;
-            sub_count = 1;
-            while (sub_count != CHUNKSIZE && shared_buffer[cur_start+sub_count] != TERMINATOR)
-                sub_count ++;
-            cur_end = cur_start + sub_count;
-            //printf("produce a job, %d, %d\n", cur_start, cur_end);
-            q_length = 1;
-            num_jobs ++;
-            count += sub_count;
+        if (q_length == 0) {
+            q_length ++;
+            queue.start = num_jobs * CHUNKSIZE;
+            queue.end = (++num_jobs) * CHUNKSIZE;
         }
         pthread_mutex_unlock(&mutex_variable);
-            //sleep(0.000000002);
-        //sem_post(&full);
     }
+    while (shared_buffer[401*CHUNKSIZE+count] != TERMINATOR) {
+        count ++;
+    }
+    pthread_mutex_lock(&mutex_variable);
+    queue.start = 401 * CHUNKSIZE;
+    queue.end = 401*CHUNKSIZE + count;
+    q_length = 1;
+    pthread_mutex_unlock(&mutex_variable);
     //printf("producer: last count is: %d\n", count);
     //printf("producer: number of jobs is: %d\n", num_jobs);
     pthread_mutex_lock(&mutex_variable);
+    //if (q_length < 0)
     all_done = true;
+    //printf("total num jobs is: %d\n", num_jobs);
     pthread_mutex_unlock(&mutex_variable);
 }
 
@@ -111,13 +112,15 @@ void get_histogram(char *buffer, int* histogram, int num_threads) {
     //sem_init(empty, 0, 1);
     all_done = false;
     q_length = 0;
+    //q_max = num_threads;
     shared_buffer = buffer;
-    cur_start = 0;
+    //cur_start = 0;
     for (int i = 0; i < N; i ++)
         global_hist[i] = 0;
     // create threads
     pthread_t *thread;
     thread = (pthread_t*)malloc(num_threads * sizeof(*thread));
+    //queue = (struct Job*)malloc(num_threads * sizeof(*queue));
     for (int i = 0; i < num_threads; i ++)
         pthread_create(thread+i, NULL, &Consumer, NULL);
     Producer();
