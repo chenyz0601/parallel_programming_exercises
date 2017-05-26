@@ -7,23 +7,13 @@
 #include <unistd.h>
 #include "names.h"
 #define N 10 // number of characters
-//unsigned int cur_start; // start point of each job
-//unsigned int cur_end; // end point of each job
 int *global_hist; // for each thread to do reduction
 char *shared_buffer; // start pointer of the names
-//int q_length;
-//bool all_done;
-int job_index;
 int residual;
+int job_index;
 
 pthread_mutex_t mutex_variable = PTHREAD_MUTEX_INITIALIZER; // mutex for tasks
 pthread_mutex_t mutex_count = PTHREAD_MUTEX_INITIALIZER; // mutex for reduction
-struct Job {
-    unsigned int start;
-    unsigned int end;
-};
-
-struct Job queue;
 
 void * Consumer(void * arg) {
     int local_hist[N]; // hold by each thread to count hist
@@ -31,8 +21,8 @@ void * Consumer(void * arg) {
     // initialize
     for (int i = 0; i < N; i ++)
         local_hist[i] = 0;
-    struct Job cur_job;
     int count = 0;
+    unsigned int start, end;
     // local start and end points
     while(1) {
         pthread_mutex_lock(&mutex_variable);
@@ -40,16 +30,16 @@ void * Consumer(void * arg) {
         job_index++;
         pthread_mutex_unlock(&mutex_variable);
         if (count < 401) {
-            cur_job.start = count * CHUNKSIZE;
-            cur_job.end = (count + 1) * CHUNKSIZE;
+            start = count * CHUNKSIZE;
+            end = (count + 1) * CHUNKSIZE;
         } else if (count == 401) {
-            cur_job.start = count * CHUNKSIZE;
-            cur_job.end = count * CHUNKSIZE + residual;
+            start = count * CHUNKSIZE;
+            end = count * CHUNKSIZE + residual;
         } else
             break;
         char current_word[20] = "";
         int c = 0;
-        for (unsigned int i = cur_job.start; i < cur_job.end; i++) {
+        for (unsigned int i = start; i < end; i++) {
             if (isalpha(shared_buffer[i])) {
                 current_word[c++] = shared_buffer[i];
             } else {
@@ -79,7 +69,6 @@ void get_histogram(char *buffer, int* histogram, int num_threads) {
     shared_buffer = buffer;
     job_index = 0;
     global_hist = histogram;
-    // create threads
     pthread_t *thread;
     thread = (pthread_t*)malloc(num_threads * sizeof(*thread));
     for (int i = 0; i < num_threads; i ++) {
